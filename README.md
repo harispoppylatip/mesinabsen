@@ -10,17 +10,17 @@ dipakai sendiri oleh program lain karena antarmukanya hanya HTTP biasa.
 
 ## Isi folder
 
-| Berkas | Keterangan |
-| --- | --- |
-| `face_service.py` | Layanan wajah. Menyediakan `GET /health` dan `POST /encode`. |
-| `enroll_faces.py` | Skrip pendaftaran wajah secara massal dari folder foto. |
-| `main.py` | Contoh uji coba lewat kamera laptop. Bukan bagian layanan. |
-| `simple_facerec.py` | Kelas bantu untuk contoh `main.py`. |
-| `requirements.txt` | Daftar paket Python yang dipakai. |
-| `Dockerfile` | Resep image layanan. |
-| `docker-compose.yml` | Cara menjalankan layanan dengan Docker. |
-| `.env.example` | Contoh pengaturan alamat dan port. |
-| `README-wajah.md` | Panduan lebih dalam untuk menghubungkan ke aplikasi Laravel. |
+| Berkas               | Keterangan                                                   |
+| -------------------- | ------------------------------------------------------------ |
+| `face_service.py`    | Layanan wajah. Menyediakan `GET /health` dan `POST /encode`. |
+| `enroll_faces.py`    | Skrip pendaftaran wajah secara massal dari folder foto.      |
+| `main.py`            | Contoh uji coba lewat kamera laptop. Bukan bagian layanan.   |
+| `simple_facerec.py`  | Kelas bantu untuk contoh `main.py`.                          |
+| `requirements.txt`   | Daftar paket Python yang dipakai.                            |
+| `Dockerfile`         | Resep image layanan.                                         |
+| `docker-compose.yml` | Cara menjalankan layanan dengan Docker.                      |
+| `.env.example`       | Contoh pengaturan alamat dan port.                           |
+| `README-wajah.md`    | Panduan lebih dalam untuk menghubungkan ke aplikasi Laravel. |
 
 ## Kenapa dipisah dari aplikasi PHP
 
@@ -75,7 +75,7 @@ curl http://127.0.0.1:5005/health
 Balasannya:
 
 ```json
-{"status":"ok","model":"dlib-resnet-v1","dimensions":"128"}
+{ "status": "ok", "model": "dlib-resnet-v1", "dimensions": "128" }
 ```
 
 Kirim satu foto:
@@ -147,7 +147,7 @@ Penanda layanan hidup. Aplikasi sekolah memanggilnya sebelum memakai fitur
 wajah, jadi pengguna tidak menunggu lama hanya untuk mengetahui layanan mati.
 
 ```json
-{"status":"ok","model":"dlib-resnet-v1","dimensions":"128"}
+{ "status": "ok", "model": "dlib-resnet-v1", "dimensions": "128" }
 ```
 
 ### `POST /encode`
