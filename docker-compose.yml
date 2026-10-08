@@ -1,0 +1,68 @@
+# Layanan wajah untuk absen wajah aplikasi sekolah.
+#
+# Isinya hanya satu layanan, yaitu layanan wajahnya sendiri. Aplikasi Laravel
+# sengaja tidak ikut di sini karena punya siklus hidup yang berbeda: PHP memuat
+# ulang kode setiap permintaan, sedangkan model wajah dimuat sekali di proses
+# ini lalu dipakai berulang. Karena itu Laravel cukup mengirim foto ke sini
+# lewat FACE_SERVICE_URL.
+#
+# Menjalankan:
+#     docker compose up -d
+#     docker compose ps
+#     docker compose logs -f face
+
+name: layanan-wajah
+
+services:
+  face:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: layanan-wajah:latest
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+
+    ports:
+      # Hanya dibuka di 127.0.0.1, bukan di seluruh kartu jaringan. Layanan ini
+      # menerima foto wajah dan tidak punya kata sandi sendiri, jadi jangan
+      # sampai terbuka ke jaringan sekolah tanpa sengaja.
+      #
+      # Bila layanan wajah dipindah ke komputer lain, ubah FACE_PUBLISH_HOST
+      # menjadi 0.0.0.0 di berkas .env, lalu batasi dengan firewall sekolah.
+      - "${FACE_PUBLISH_HOST:-127.0.0.1}:${FACE_PUBLISH_PORT:-5005}:5005"
+
+    volumes:
+      # Folder foto untuk skrip pendaftaran massal (enroll_faces.py).
+      # Dipasang hanya baca: layanan ini tidak pernah menulis foto, dan
+      # foto wajah tidak pernah disimpan ke dalam kontainer.
+      - ./images:/srv/images:ro
+
+    environment:
+      FACE_HOST: 0.0.0.0
+      FACE_PORT: "5005"
+
+    extra_hosts:
+      # Supaya perintah "docker compose run" di dalam kontainer bisa menjangkau
+      # aplikasi Laravel yang berjalan langsung di komputer ini lewat
+      # http://host.docker.internal:8000
+      - "host.docker.internal:host-gateway"
+
+    healthcheck:
+      # Balasan /health baru muncul setelah model wajah selesai dimuat, jadi
+      # status "healthy" berarti layanan benar-benar siap menerima foto.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5005/health', timeout=5).status == 200 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+    # Batas sumber daya. Satu proses ini memuat model dlib dan bisa memakai
+    # ratusan megabita memori; batas ini menjaga komputer sekolah tidak kehabisan
+    # memori bila ada kesalahan pada foto yang dikirim.
+    mem_limit: 1500m
+    cpus: 2.0

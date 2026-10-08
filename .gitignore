@@ -1,0 +1,18 @@
+# Lingkungan Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Berkas pengaturan lokal
+.env
+
+# Foto wajah anggota.
+# Isinya data pribadi dan tidak boleh ikut ke Git. Folder ini tetap dipertahankan
+# di komputer pengembang dan dipasang sebagai volume oleh docker-compose.yml.
+images/
+
+# Berkas editor
+.vscode/
+.idea/
+*.log

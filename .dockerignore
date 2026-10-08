@@ -1,0 +1,23 @@
+# Berkas yang tidak perlu ikut ke dalam image.
+
+# Lingkungan Python di komputer ini, pasti berbeda isinya dengan di kontainer.
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Berkas rahasia dan berkas lokal.
+.env
+.git/
+.gitignore
+
+# Foto wajah anggota tidak pernah ikut ke dalam image. Folder ini dipasang
+# sebagai volume saat kontainer dijalankan, dan tidak boleh ikut ke Git.
+images/
+
+# Dokumen dan berkas editor tidak dibutuhkan saat menjalankan layanan.
+*.md
+.vscode/
+.idea/
+*.log
