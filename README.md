@@ -14,13 +14,15 @@ dipakai sendiri oleh program lain karena antarmukanya hanya HTTP biasa.
 | -------------------- | ------------------------------------------------------------ |
 | `face_service.py`    | Layanan wajah. Menyediakan `GET /health` dan `POST /encode`. |
 | `enroll_faces.py`    | Skrip pendaftaran wajah secara massal dari folder foto.      |
-| `main.py`            | Contoh uji coba lewat kamera laptop. Bukan bagian layanan.   |
-| `simple_facerec.py`  | Kelas bantu untuk contoh `main.py`.                          |
 | `requirements.txt`   | Daftar paket Python yang dipakai.                            |
 | `Dockerfile`         | Resep image layanan.                                         |
 | `docker-compose.yml` | Cara menjalankan layanan dengan Docker.                      |
 | `.env.example`       | Contoh pengaturan alamat dan port.                           |
 | `README-wajah.md`    | Panduan lebih dalam untuk menghubungkan ke aplikasi Laravel. |
+
+Folder `arsip/` berisi sisa bentuk awal folder ini, yaitu contoh uji coba lewat
+kamera laptop (`main.py` dan `simple_facerec.py`). Layanan tidak memakai
+keduanya, dan alasannya dijelaskan di `arsip/README.md`.
 
 ## Kenapa dipisah dari aplikasi PHP
 
@@ -63,6 +65,30 @@ docker compose down
 Alamat bawaan `http://127.0.0.1:5005`, sama dengan alamat yang dipakai aplikasi
 Laravel. Untuk mengubahnya, salin `.env.example` menjadi `.env` lalu sesuaikan
 `FACE_PUBLISH_HOST` dan `FACE_PUBLISH_PORT`.
+
+### Jaringan bersama dengan website Laravel
+
+Berkas compose di folder ini menyatakan jaringan bernama `absen-jaringan`
+sebagai jaringan luar. Jaringan itulah yang dipakai website Laravel di folder
+`absensidikjari` untuk mengirim foto ke sini. Karena berada di jaringan yang
+sama, alamat yang dipakai website cukup `http://wajah:5005`, dan port layanan
+ini tidak perlu dibuka ke jaringan sekolah sama sekali.
+
+Jaringan dibuat sekali saja sebelum layanan dinyalakan:
+
+```
+docker network create absen-jaringan
+```
+
+Bila jaringan itu belum ada, `docker compose up` berhenti dengan pesan
+`network absen-jaringan declared as external, but could not be found`. Jalankan
+perintah di atas lalu ulangi.
+
+Bila aplikasi Laravel tetap dijalankan langsung di komputer ini (tanpa Docker),
+jaringan tersebut sebenarnya tidak dibutuhkan, tetapi perintah di atas tetap
+harus dijalankan supaya compose tidak berhenti. Kalau tidak ingin memakainya,
+hapus bagian `networks` pada `docker-compose.yml`, dan aplikasi akan tetap bisa
+menghubungi layanan ini lewat `http://127.0.0.1:5005`.
 
 ### Menguji layanan
 
@@ -188,6 +214,53 @@ ditegakkan oleh program pemanggil.
 Nilai `dimensions` harus sama dengan `FaceEmbedding::Dimensions` di aplikasi
 Laravel. Angka 128 sendiri berasal dari model dlib resnet v1.
 
+### `POST /encode?with_photo=1`
+
+Bila aplikasi pemanggil membutuhkan potret sebagai bukti absen, tambahkan
+`with_photo=1` pada alamatnya. Balasannya sama seperti di atas, hanya
+bertambah lima kunci:
+
+```json
+{
+  "status": "success",
+  "encoding": [128 angka],
+  "face_count": 1,
+  "model": "dlib-resnet-v1",
+  "message": "Wajah terbaca.",
+  "photo": "isi JPEG yang sudah ditulis dalam base64",
+  "photo_bytes": 12926,
+  "photo_width": 320,
+  "photo_height": 480,
+  "photo_quality": 72
+}
+```
+
+Potretnya dibuat dari foto yang baru saja dikirim, memakai Pillow yang memang
+sudah ikut terpasang. Sisi terpanjangnya diperkecil lebih dulu, foto kecil
+tidak pernah diperbesar, lalu disimpan sebagai JPEG bertahap dengan warna
+4:2:0. Bila hasilnya masih melewati batas ukuran, mutu JPEG-nya diturunkan
+berulang sampai masuk. Pada foto 853 kali 1280 langkah ini hanya memakan
+sekitar 0,06 detik, jadi biayanya hampir tidak terasa dibanding pengenalan
+wajah itu sendiri.
+
+Fotonya hanya disertakan bila ada wajah yang terbaca. Bila pengolahannya
+gagal, layanan tetap membalas `success` tanpa kunci potret dan sebabnya
+dicatat pada log, karena bukti potret tidak boleh menggagalkan absen.
+Aplikasi pemanggil juga wajib memperlakukannya sebagai pelengkap, bukan
+syarat.
+
+Bentuk potretnya bisa diubah lewat variabel lingkungan, tanpa membangun ulang
+image bila memakai Docker:
+
+| Variabel              | Arti                                                  | Bawaan |
+| --------------------- | ----------------------------------------------------- | ------ |
+| `FACE_PROOF_MAX_SIDE` | Sisi terpanjang potret dalam piksel                   | `480`  |
+| `FACE_PROOF_QUALITY`  | Mutu JPEG yang dicoba lebih dulu                      | `72`   |
+| `FACE_PROOF_MAX_KB`   | Ukuran terbesar yang diterima sebelum mutu diturunkan | `48`   |
+
+Memanggilnya tanpa kunci itu membuat layanan berperilaku seperti sebelumnya,
+jadi program lama tidak perlu diubah.
+
 ## Menghubungkan ke aplikasi Laravel
 
 Di `.env` aplikasi Laravel:
@@ -202,6 +275,11 @@ Kalau alamatnya diubah, bersihkan cache pengaturan:
 ```
 php artisan config:clear
 ```
+
+Bila aplikasi Laravel juga dijalankan sebagai wadah Docker di folder
+`absensidikjari`, alamat yang dipakai bukan `127.0.0.1` melainkan nama layanan
+di jaringan bersama, yaitu `http://wajah:5005`. Nilai itu diatur pada berkas
+`docker-compose.yml` aplikasi, bukan pada `.env` yang sama.
 
 Tenggang 90 detik bukan angka asal. Satu foto butuh 12 sampai 15 detik di mesin
 tanpa kartu grafis, dan percobaan pertama selalu paling lama karena pemuatan

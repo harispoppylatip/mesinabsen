@@ -41,12 +41,30 @@ services:
     environment:
       FACE_HOST: 0.0.0.0
       FACE_PORT: "5005"
+      # Bentuk potret bukti absen yang ikut dikirim ke aplikasi sekolah.
+      # Diatur di sini, bukan di kode, supaya bisa disesuaikan tanpa membangun
+      # ulang image.
+      FACE_PROOF_MAX_SIDE: "${FACE_PROOF_MAX_SIDE:-480}"
+      FACE_PROOF_QUALITY: "${FACE_PROOF_QUALITY:-72}"
+      FACE_PROOF_MAX_KB: "${FACE_PROOF_MAX_KB:-48}"
 
     extra_hosts:
       # Supaya perintah "docker compose run" di dalam kontainer bisa menjangkau
       # aplikasi Laravel yang berjalan langsung di komputer ini lewat
       # http://host.docker.internal:8000
       - "host.docker.internal:host-gateway"
+
+    networks:
+      # Jaringan bersama dengan website Laravel di folder "absensidikjari".
+      # Lewat jaringan ini website mengirim foto ke sini dengan alamat
+      # http://wajah:5005, jadi layanan ini tidak perlu dibuka ke jaringan
+      # sekolah sama sekali.
+      #
+      # Jaringan dibuat sekali dengan perintah:
+      #     docker network create absen-jaringan
+      absen-jaringan:
+        aliases:
+          - wajah
 
     healthcheck:
       # Balasan /health baru muncul setelah model wajah selesai dimuat, jadi
@@ -66,3 +84,10 @@ services:
     # memori bila ada kesalahan pada foto yang dikirim.
     mem_limit: 1500m
     cpus: 2.0
+
+networks:
+  # Jaringan bersama dengan website Laravel. Sengaja tidak dibuat di sini
+  # (external) supaya berkas ini tidak pernah menghapusnya saat dimatikan, dan
+  # supaya bergantung atau tidaknya layanan wajah pada website tetap terbaca.
+  absen-jaringan:
+    external: true

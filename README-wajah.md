@@ -122,3 +122,9 @@ Presensi Gerbang, sama seperti sensor sidik jari.
   membalas `{"status":...,"encoding":[128 angka],"face_count":...,"model":...,"message":...}`.
 - Jawaban `success` tetap menyertakan `face_count`, sehingga penolakan "foto
   memuat lebih dari satu wajah" dilakukan di aplikasi Laravel, bukan di sini.
+- `POST /encode?with_photo=1` menambahkan potret kecil bukti absen pada
+  jawabannya, yaitu kunci `photo` (JPEG dalam base64), `photo_bytes`,
+  `photo_width`, `photo_height`, dan `photo_quality`. Foto aslinya diperkecil
+  lebih dulu lalu mutu JPEG-nya diturunkan sampai masuk batas, sehingga satu
+  potret biasanya hanya belasan kilobita. Bila potretnya gagal dibuat, kunci
+  itu dihilangkan dan jawabannya tetap `success`.
