@@ -112,6 +112,20 @@ Alat kamera wajah harus terdaftar di halaman Alat Sensor dengan ID `kamera-wajah
 - petugas membuka halaman Kamera Absen Wajah dari HP, menekan Nyalakan kamera,
   lalu menaruh wajah di depan kamera.
 
+Halaman kamera memeriksa SEMUA wajah yang terlihat pada satu bingkai, bukan
+hanya satu orang. Setiap orang yang dikenali diberi kotak beserta namanya di
+atas gambar kamera, dan kehadirannya dicatat sendiri sendiri, sehingga
+beberapa siswa bisa absen pada bingkai yang sama. Wajah yang belum terdaftar
+tetap diberi kotak dengan label "Tidak dikenal" dan tidak dicatat.
+
+Bingkai dikirim tiap 1,5 detik, jadi wajah yang sama akan terlihat berkali kali.
+Absennya hanya dicatat sekali: pengiriman ulang oleh orang yang sudah tercatat
+dibalas dengan status "sudah absen" dan tidak menambah catatan baru. Satu foto
+bukti absen dipakai bersama untuk semua orang pada bingkai itu.
+
+Jangan mengandalkan kotak di layar sebagai bukti kehadiran. Yang menentukan
+adalah catatan absen di aplikasi sekolah.
+
 Presensi masuk atau pulang mengikuti jam presensi yang sudah diatur di halaman
 Presensi Gerbang, sama seperti sensor sidik jari.
 
@@ -138,3 +152,21 @@ Presensi Gerbang, sama seperti sensor sidik jari.
   lebih dulu lalu mutu JPEG-nya diturunkan sampai masuk batas, sehingga satu
   potret biasanya hanya belasan kilobita. Bila potretnya gagal dibuat, kunci
   itu dihilangkan dan jawabannya tetap `success`.
+- `POST /detect` menerima berkas yang sama pada field **`image`** dan membalas
+  seluruh wajah pada bingkai itu: `{"status":...,"face_count":...,"width":...,"height":...,"faces":[{"index":...,"bbox":{"top":...,"right":...,"bottom":...,"left":...},"face_size":...,"encoding":[...],"error":null}, ...]}`.
+  Kotak `bbox` memakai koordinat piksel gambar asli yang dikirim pemanggil,
+  sehingga bisa digambar apa adanya di atas bingkai kamera. Wajah yang angkanya
+  gagal dihitung tetap dilaporkan dengan `encoding` bernilai null dan
+  `error` bernilai `encoding_failed`, jadi satu wajah yang gagal tidak
+  menggagalkan yang lain. Bila tidak ada wajah, `status` bernilai `no_face` dan
+  `faces` berupa daftar kosong; daftar kosong itulah tanda bagi pemanggil untuk
+  menghapus kotak yang lama. Parameter `with_photo=1` tetap menghasilkan SATU
+  potret untuk seluruh bingkai, bukan satu per wajah.
+- `FACE_DETECT_MAX_SIDE` (bawaan 1024) dan `FACE_MAX_FACES` (bawaan 8) mengatur
+  batas pekerjaan `/detect`: gambar besar diperkecil dulu untuk deteksi lalu
+  koordinatnya dikembalikan ke skala asli, dan jumlah wajah yang dihitung dibatasi
+  supaya bingkai yang ramai tidak menghabiskan memori. Isi `FACE_MAX_FACES=0`
+  untuk tidak membatasi.
+- Layanan ini hanya membandingkan angka wajah. Ia tidak membedakan wajah asli
+  dari foto wajah yang ditunjukkan ke kamera, dan tidak memeriksa kedipan mata.
+  Pemeriksaan seperti itu belum ada di sini.

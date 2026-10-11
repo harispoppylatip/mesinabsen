@@ -50,17 +50,50 @@ Kontrak balasan
         Tanpa with_photo, balasannya sama persis seperti sebelumnya, jadi
         program pendaftaran wajah dan alat lama tidak perlu diubah.
 
+    POST /detect   multipart, nama field "image"
+        Untuk kamera yang bisa memuat BEBERAPA orang sekaligus. Seluruh wajah
+        dihitung sendiri sendiri, dan setiap wajah dilaporkan beserta kotaknya.
+        Parameter opsional: with_photo=1
+
+        {"status": "success", "face_count": 2, "model": "dlib-resnet-v1",
+         "width": 640, "height": 480,
+         "faces": [
+            {"index": 0,
+             "bbox": {"top": 80, "right": 210, "bottom": 240, "left": 70},
+             "face_size": 160,
+             "encoding": [...128 angka...]},
+            {"index": 1, "bbox": {...}, "face_size": 150,
+             "encoding": null, "error": "encoding_failed"}
+         ]}
+        {"status": "no_face", "face_count": 0, "faces": [], "width": ..., "height": ...}
+
+        `bbox` memakai koordinat piksel GAMBAR ASLI yang dikirim pemanggil,
+        bukan gambar yang sudah diperkecil untuk deteksi, jadi kotaknya tetap
+        bisa digambar apa adanya di atas bingkai kamera. `width` dan `height`
+        adalah ukuran gambar asli itu.
+
+        Wajah yang angka wajahnya gagal dihitung tetap dilaporkan dengan
+        `encoding` bernilai null supaya pemanggil tetap bisa menggambar kotak
+        dan menandainya belum dikenal, tanpa menggagalkan wajah lain.
+
     GET /health
         {"status": "ok"}
 
-Bila ada lebih dari satu wajah, yang dipakai adalah wajah terbesar, karena
-biasanya itulah orang yang berdiri paling dekat dengan kamera. Jumlah wajah
-tetap dilaporkan lewat `face_count` supaya program pendaftaran massal bisa
-menolak foto yang isinya lebih dari satu orang.
+Urutan pemeriksaan pada /detect: gambar diperkecil lebih dulu bila lebih besar
+dari DETECT_MAX_SIDE supaya deteksi tetap cepat di mesin tanpa kartu grafis,
+lalu koordinat hasilnya dikembalikan ke skala gambar asli. Paling banyak
+MAX_FACES wajah yang dihitung angka wajahnya supaya satu bingkai yang ramai
+tidak menghabiskan memori sekolah.
 
-Untuk absen, pemanggil sebaiknya mengirim require_single=1 supaya foto yang
-memuat lebih dari satu orang ditolak di sini, bukan diam-diam dipilihkan wajah
-terbesar. Perilaku lama tetap dipakai bila parameter itu tidak dikirim.
+Bila ada lebih dari satu wajah, yang dipakai oleh /encode adalah wajah
+terbesar, karena biasanya itulah orang yang berdiri paling dekat dengan
+kamera. Jumlah wajah tetap dilaporkan lewat `face_count` supaya program
+pendaftaran massal bisa menolak foto yang isinya lebih dari satu orang.
+
+Untuk absen satu orang, pemanggil sebaiknya mengirim require_single=1 supaya
+foto yang memuat lebih dari satu orang ditolak di sini, bukan diam-diam
+dipilihkan wajah terbesar. Untuk absen yang memang memuat banyak orang,
+pakailah /detect, bukan /encode.
 """
 
 from __future__ import annotations
@@ -93,6 +126,18 @@ logger = logging.getLogger("layanan-wajah")
 # (bawaannya FACE_PUBLISH_HOST 127.0.0.1).
 HOST = os.getenv("FACE_HOST", "127.0.0.1")
 PORT = int(os.getenv("FACE_PORT", "5005"))
+
+# Sisi terpanjang gambar yang dipakai untuk MENDETEKSI wajah. Gambar kamera
+# biasa (640 piksel) tidak terpengaruh, sedangkan foto besar dari ponsel
+# diperkecil lebih dulu supaya deteksinya tidak lambat di mesin tanpa kartu
+# grafis. Koordinat kotak wajah dikembalikan ke skala gambar asli sebelum
+# dilaporkan, jadi pemanggil tidak perlu menghitung apa pun.
+DETECT_MAX_SIDE = int(os.getenv("FACE_DETECT_MAX_SIDE", "1024"))
+
+# Paling banyak wajah yang dihitung angka wajahnya dalam satu gambar. Angka ini
+# hanya pengaman: satu bingkai yang ramai tidak boleh menghabiskan memori
+# sekolah sampai prosesnya dimatikan sistem. Isi 0 untuk tidak membatasi.
+MAX_FACES = int(os.getenv("FACE_MAX_FACES", "8"))
 
 # Nama model yang ikut disimpan di database sebagai penanda asal angkanya.
 MODEL_NAME = "dlib-resnet-v1"
@@ -151,6 +196,60 @@ def face_side(location: tuple[int, int, int, int]) -> int:
 
     return max(0, min(bottom - top, right - left))
 
+def shrink_for_detection(picture: object) -> tuple[object, float]:
+    """Perkecil gambar untuk deteksi, lalu kembalikan faktornya.
+
+    Deteksi dijalankan pada gambar kecil supaya tetap cepat, tetapi kotak yang
+    dilaporkan harus tetap dalam koordinat gambar ASLI yang dikirim pemanggil,
+    sebab kotak itulah yang digambar di atas bingkai kamera. Faktor inilah yang
+    dipakai membesarkan kembali koordinatnya. Gambar yang sudah cukup kecil
+    dikembalikan apa adanya dengan faktor 1.0.
+    """
+
+    height, width = np.asarray(picture).shape[:2]
+    longest = max(height, width)
+
+    if DETECT_MAX_SIDE <= 0 or longest <= DETECT_MAX_SIDE:
+        return picture, 1.0
+
+    factor = longest / float(DETECT_MAX_SIDE)
+    frame = Image.fromarray(np.asarray(picture, dtype="uint8")).convert("RGB")
+    frame = frame.resize(
+        (max(1, round(width / factor)), max(1, round(height / factor))),
+        Image.Resampling.LANCZOS,
+    )
+
+    return np.asarray(frame, dtype="uint8"), factor
+
+
+def restore_locations(
+    locations: list[tuple[int, int, int, int]],
+    factor: float,
+    width: int,
+    height: int,
+) -> list[tuple[int, int, int, int]]:
+    """Kembalikan koordinat kotak wajah ke skala gambar asli.
+
+    Hasilnya juga dijepit ke dalam batas gambar supaya pembulatan gambar kecil
+    tidak pernah menghasilkan kotak yang keluar dari bingkai.
+    """
+
+    if factor <= 1.0:
+        return locations
+
+    restored = []
+
+    for top, right, bottom, left in locations:
+        restored.append(
+            (
+                max(0, min(height, int(round(top * factor)))),
+                max(0, min(width, int(round(right * factor)))),
+                max(0, min(height, int(round(bottom * factor)))),
+                max(0, min(width, int(round(left * factor)))),
+            )
+        )
+
+    return restored
 
 def proof_photo(picture: object) -> dict[str, object] | None:
     """Perkecil seluruh bingkai foto menjadi JPEG kecil sebagai bukti absen.
@@ -327,6 +426,140 @@ async def encode(
             "message": "Wajah terbaca."
             if len(locations) == 1
             else "Wajah terbaca, ada lebih dari satu wajah di foto.",
+            **proof,
+        }
+    )
+
+
+@app.post("/detect")
+async def detect(image: UploadFile = File(...), with_photo: bool = False) -> JSONResponse:
+    """Hitung angka pembanding SELURUH wajah yang terlihat di satu gambar.
+
+    Dipakai kamera absen yang bisa memuat beberapa orang sekaligus. Berbeda
+    dengan /encode yang hanya mengurus satu wajah, di sini setiap wajah dihitung
+    dan dilaporkan sendiri sendiri beserta kotaknya, sehingga aplikasi sekolah
+    bisa menggambar kotak dan mencatat kehadiran tiap orang tanpa menunggu yang
+    lain keluar dari bingkai.
+
+    Satu wajah yang gagal dihitung angkanya TIDAK menggagalkan wajah lain: entri
+    wajah itu tetap dikirim dengan encoding bernilai null, dan pemanggil
+    menandainya belum dikenal.
+
+    Foto bukti (with_photo=1) dikirim sekali untuk seluruh bingkai, karena satu
+    foto frame sudah cukup menjadi bukti beberapa orang pada saat yang sama.
+    """
+
+    payload = await image.read()
+
+    if not payload:
+        return JSONResponse(
+            {
+                "status": "error",
+                "face_count": 0,
+                "faces": [],
+                "message": "Foto kosong.",
+            },
+            status_code=400,
+        )
+
+    try:
+        picture = face_recognition.load_image_file(io.BytesIO(payload))
+    except Exception:
+        return JSONResponse(
+            {
+                "status": "error",
+                "face_count": 0,
+                "faces": [],
+                "message": "Foto tidak bisa dibaca.",
+            },
+            status_code=400,
+        )
+
+    height, width = np.asarray(picture).shape[:2]
+
+    # Deteksi dijalankan pada gambar yang sudah diperkecil, lalu koordinatnya
+    # dikembalikan ke skala gambar asli.
+    small, factor = shrink_for_detection(picture)
+    locations = face_recognition.face_locations(small, model="hog")
+    locations = restore_locations(locations, factor, width, height)
+
+    if not locations:
+        return JSONResponse(
+            {
+                "status": "no_face",
+                "face_count": 0,
+                "faces": [],
+                "width": width,
+                "height": height,
+                "model": MODEL_NAME,
+                "message": "Wajah tidak terlihat.",
+            }
+        )
+
+    # Wajah terbesar lebih dulu, karena biasanya dialah yang berdiri paling
+    # dekat kamera dan paling mungkin terbaca jelas. Sisanya tetap dilaporkan
+    # selama batas MAX_FACES belum terlampaui.
+    order = sorted(
+        range(len(locations)),
+        key=lambda index: face_side(locations[index]),
+        reverse=True,
+    )
+
+    if MAX_FACES > 0:
+        order = order[:MAX_FACES]
+
+    faces = []
+
+    for index in order:
+        location = locations[index]
+        side = face_side(location)
+        top, right, bottom, left = location
+        entry: dict[str, object] = {
+            "index": len(faces),
+            "bbox": {"top": top, "right": right, "bottom": bottom, "left": left},
+            "face_size": side,
+            "encoding": None,
+        }
+
+        encodings = face_recognition.face_encodings(picture, [location])
+
+        if not encodings:
+            entry["error"] = "encoding_failed"
+            faces.append(entry)
+            continue
+
+        encoding = np.asarray(encodings[0], dtype=float).ravel()
+
+        if encoding.size != DIMENSIONS:
+            entry["error"] = "wrong_dimensions"
+            faces.append(entry)
+            continue
+
+        entry["encoding"] = [round(float(value), 6) for value in encoding]
+        faces.append(entry)
+
+    # Foto bukti tidak boleh menggagalkan absen. Bila perkecilannya gagal,
+    # absennya tetap dicatat, hanya buktinya yang tidak ada.
+    proof: dict[str, object] = {}
+
+    if with_photo:
+        try:
+            proof = proof_photo(picture) or {}
+        except Exception:
+            logger.exception("Gagal menyiapkan foto bukti absen.")
+            proof = {}
+
+    return JSONResponse(
+        {
+            "status": "success",
+            "face_count": len(faces),
+            "width": width,
+            "height": height,
+            "model": MODEL_NAME,
+            "message": "Wajah terbaca."
+            if len(faces) == 1
+            else f"{len(faces)} wajah terbaca.",
+            "faces": faces,
             **proof,
         }
     )

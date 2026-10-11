@@ -10,15 +10,15 @@ dipakai sendiri oleh program lain karena antarmukanya hanya HTTP biasa.
 
 ## Isi folder
 
-| Berkas               | Keterangan                                                   |
-| -------------------- | ------------------------------------------------------------ |
-| `face_service.py`    | Layanan wajah. Menyediakan `GET /health` dan `POST /encode`. |
-| `enroll_faces.py`    | Skrip pendaftaran wajah secara massal dari folder foto.      |
-| `requirements.txt`   | Daftar paket Python yang dipakai.                            |
-| `Dockerfile`         | Resep image layanan.                                         |
-| `docker-compose.yml` | Cara menjalankan layanan dengan Docker.                      |
-| `.env.example`       | Contoh pengaturan alamat dan port.                           |
-| `README-wajah.md`    | Panduan lebih dalam untuk menghubungkan ke aplikasi Laravel. |
+| Berkas               | Keterangan                                                                    |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `face_service.py`    | Layanan wajah. Menyediakan `GET /health`, `POST /encode`, dan `POST /detect`. |
+| `enroll_faces.py`    | Skrip pendaftaran wajah secara massal dari folder foto.                       |
+| `requirements.txt`   | Daftar paket Python yang dipakai.                                             |
+| `Dockerfile`         | Resep image layanan.                                                          |
+| `docker-compose.yml` | Cara menjalankan layanan dengan Docker.                                       |
+| `.env.example`       | Contoh pengaturan alamat dan port.                                            |
+| `README-wajah.md`    | Panduan lebih dalam untuk menghubungkan ke aplikasi Laravel.                  |
 
 Folder `arsip/` berisi sisa bentuk awal folder ini, yaitu contoh uji coba lewat
 kamera laptop (`main.py` dan `simple_facerec.py`). Layanan tidak memakai
@@ -260,6 +260,75 @@ image bila memakai Docker:
 
 Memanggilnya tanpa kunci itu membuat layanan berperilaku seperti sebelumnya,
 jadi program lama tidak perlu diubah.
+
+### `POST /detect`
+
+Dipakai kamera yang bisa memuat beberapa orang sekaligus. Berbeda dari
+`/encode` yang hanya melaporkan satu wajah, seluruh wajah pada bingkai dihitung
+sendiri sendiri dan setiap wajah dilaporkan beserta kotaknya. Aplikasi sekolah
+memakai balasan ini untuk menggambar kotak dan nama di atas gambar kamera, lalu
+mencatat kehadiran tiap orang.
+
+```json
+{
+  "status": "success",
+  "face_count": 2,
+  "model": "dlib-resnet-v1",
+  "width": 1280,
+  "height": 720,
+  "faces": [
+    {
+      "index": 0,
+      "bbox": { "top": 80, "right": 210, "bottom": 240, "left": 70 },
+      "face_size": 160,
+      "encoding": [128 angka],
+      "error": null
+    },
+    {
+      "index": 1,
+      "bbox": { "top": 90, "right": 640, "bottom": 250, "left": 480 },
+      "face_size": 150,
+      "encoding": null,
+      "error": "encoding_failed"
+    }
+  ]
+}
+```
+
+Bila tidak ada wajah yang terlihat, `status` bernilai `no_face`, `face_count`
+bernilai 0, dan `faces` berupa daftar kosong. Aplikasi pemanggil memakai daftar
+kosong itu sebagai tanda untuk menghapus kotak dan label yang lama.
+
+Beberapa hal yang membedakannya dari `/encode`:
+
+- `bbox` memakai koordinat piksel gambar ASLI yang dikirim pemanggil, bukan
+  gambar yang sudah diperkecil untuk deteksi. Kotaknya karena itu bisa digambar
+  apa adanya di atas bingkai kamera.
+- Wajah yang angkanya gagal dihitung tetap dilaporkan, dengan `encoding` bernilai
+  null dan `error` bernilai `encoding_failed`. Satu wajah yang gagal tidak
+  menggagalkan wajah lain.
+- Urutan wajah mengikuti besar kotaknya, dari yang terbesar. Aplikasi pemanggil
+  tidak boleh menganggap urutannya tetap dari bingkai ke bingkai, dan harus
+  memutuskan identitas dari `encoding`, bukan dari posisinya.
+- Foto bukti absen (`with_photo=1`) tetap satu untuk seluruh bingkai, bukan satu
+  per wajah.
+- `MAX_FACES` (bawaan 8) hanya pengaman: bingkai yang memuat lebih banyak orang
+  daripada angka itu hanya dihitung sebagian. Isi `0` untuk tidak membatasi.
+
+Layanan ini hanya membandingkan angka wajah. Ia tidak bisa membedakan wajah
+asli dari foto wajah yang ditunjukkan ke kamera, dan tidak memeriksa apakah
+matanya berkedip. Pemeriksaan seperti itu belum ada, jadi jangan menganggapnya
+sebagai bagian dari layanan ini.
+
+| Variabel               | Arti                                                       | Bawaan |
+| ---------------------- | ---------------------------------------------------------- | ------ |
+| `FACE_DETECT_MAX_SIDE` | Sisi terpanjang gambar yang dipakai untuk MENDETEKSI wajah | `1024` |
+| `FACE_MAX_FACES`       | Paling banyak wajah yang dihitung dalam satu gambar        | `8`    |
+
+Gambar yang lebih besar dari `FACE_DETECT_MAX_SIDE` diperkecil lebih dulu supaya
+deteksinya tetap cepat di mesin tanpa kartu grafis, lalu koordinat kotak wajah
+dikembalikan ke skala gambar asli. Bingkai kamera biasa (lebar 640 sampai 1280
+piksel) tidak terpengaruh oleh pengaturan ini.
 
 ## Menghubungkan ke aplikasi Laravel
 

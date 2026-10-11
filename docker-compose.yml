@@ -41,6 +41,11 @@ services:
     environment:
       FACE_HOST: 0.0.0.0
       FACE_PORT: "5005"
+      # Sisi terpanjang gambar yang dipakai untuk mendeteksi wajah, dan paling
+      # banyak wajah yang dihitung dalam satu bingkai. Keduanya pengaman supaya
+      # foto besar atau bingkai yang ramai tidak membuat prosesnya kelamaan.
+      FACE_DETECT_MAX_SIDE: "${FACE_DETECT_MAX_SIDE:-1024}"
+      FACE_MAX_FACES: "${FACE_MAX_FACES:-8}"
       # Bentuk potret bukti absen yang ikut dikirim ke aplikasi sekolah.
       # Diatur di sini, bukan di kode, supaya bisa disesuaikan tanpa membangun
       # ulang image.
