@@ -119,9 +119,19 @@ Presensi Gerbang, sama seperti sensor sidik jari.
 
 - `GET /health` membalas `{"status":"ok","model":"dlib-resnet-v1","dimensions":"128"}`.
 - `POST /encode` menerima berkas pada field bernama **`image`** (bukan `file`) dan
-  membalas `{"status":...,"encoding":[128 angka],"face_count":...,"model":...,"message":...}`.
+  membalas `{"status":...,"encoding":[128 angka],"face_count":...,"face_size":...,"model":...,"message":...}`.
+- `face_size` adalah sisi terpendek kotak wajah dalam piksel. Aplikasi sekolah
+  memakainya untuk menolak potret yang wajahnya terlalu kecil, sebab wajah 40
+  piksel masih menghasilkan 128 angka yang terlihat wajar padahal angkanya sudah
+  tidak layak dipakai memutuskan identitas.
 - Jawaban `success` tetap menyertakan `face_count`, sehingga penolakan "foto
-  memuat lebih dari satu wajah" dilakukan di aplikasi Laravel, bukan di sini.
+  memuat lebih dari satu wajah" tetap dikerjakan di aplikasi Laravel juga. Mesin
+  wajah versi lama yang belum melaporkan `face_size` dan belum mengenal
+  `require_single` tetap bisa dipakai.
+- `POST /encode?require_single=1` menolak sendiri foto yang memuat lebih dari satu
+  wajah, yaitu `{"status":"multiple_faces","encoding":null,"face_count":2,...}`,
+  supaya alur absen tidak diam-diam memakai wajah terbesar. Tanpa parameter ini
+  perilakunya sama seperti sebelumnya.
 - `POST /encode?with_photo=1` menambahkan potret kecil bukti absen pada
   jawabannya, yaitu kunci `photo` (JPEG dalam base64), `photo_bytes`,
   `photo_width`, `photo_height`, dan `photo_quality`. Foto aslinya diperkecil

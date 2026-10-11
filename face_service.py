@@ -25,10 +25,20 @@ Alamat bawaan http://127.0.0.1:5005, sama dengan `FACE_SERVICE_URL` di
 Kontrak balasan
 ---------------
     POST /encode   multipart, nama field "image"
-        Parameter alamat, opsional: with_photo=1
+        Parameter alamat, opsional:
+            with_photo=1      ikutkan foto bukti absen dalam balasan
+            require_single=1  tolak foto yang memuat lebih dari satu wajah
 
-        {"status": "success", "encoding": [...128 angka...], "face_count": 1}
-        {"status": "no_face", "encoding": null, "face_count": 0}
+        {"status": "success", "encoding": [...128 angka...], "face_count": 1,
+         "face_size": 412}
+        {"status": "no_face", "encoding": null, "face_count": 0, "face_size": 0}
+        {"status": "multiple_faces", "encoding": null, "face_count": 2,
+         "face_size": 512}
+
+        `face_size` adalah sisi terpendek kotak wajah dalam piksel. Angka ini
+        dilaporkan supaya aplikasi sekolah bisa menolak potret yang wajahnya
+        terlalu kecil, sebab potret seperti itu tetap menghasilkan 128 angka
+        yang terlihat wajar padahal tidak layak dipakai memutuskan identitas.
 
         Bila with_photo=1, balasan sukses bertambah:
             "photo"        foto seluruh bingkai dalam JPEG, dikodekan base64
@@ -47,6 +57,10 @@ Bila ada lebih dari satu wajah, yang dipakai adalah wajah terbesar, karena
 biasanya itulah orang yang berdiri paling dekat dengan kamera. Jumlah wajah
 tetap dilaporkan lewat `face_count` supaya program pendaftaran massal bisa
 menolak foto yang isinya lebih dari satu orang.
+
+Untuk absen, pemanggil sebaiknya mengirim require_single=1 supaya foto yang
+memuat lebih dari satu orang ditolak di sini, bukan diam-diam dipilihkan wajah
+terbesar. Perilaku lama tetap dipakai bila parameter itu tidak dikirim.
 """
 
 from __future__ import annotations
@@ -70,10 +84,14 @@ logger = logging.getLogger("layanan-wajah")
 # FACE_SERVICE_URL di .env aplikasi Laravel bila alamatnya berubah.
 #
 # Bawaannya 127.0.0.1, artinya hanya menerima koneksi dari komputer yang sama.
-# Di dalam Docker, docker-compose.yml mengisinya 0.0.0.0 supaya kontainer lain
-# bisa menghubunginya, sedangkan siapa yang boleh masuk dari luar diatur oleh
-# bagian "ports" pada berkas itu.
-HOST = os.getenv("FACE_HOST", "0.0.0.0")
+# Layanan ini tidak punya kata sandi sama sekali, jadi membukanya ke jaringan
+# harus selalu menjadi keputusan sadar: jalankan dengan FACE_HOST diisi
+# 0.0.0.0 hanya bila mesin wajahnya memang dipisah dari aplikasi sekolah, lalu
+# batasi dengan firewall. Di dalam Docker, Dockerfile dan docker-compose.yml
+# mengisinya 0.0.0.0 supaya kontainer lain bisa menghubunginya, sedangkan siapa
+# yang boleh masuk dari komputer lain diatur oleh bagian "ports" berkas itu
+# (bawaannya FACE_PUBLISH_HOST 127.0.0.1).
+HOST = os.getenv("FACE_HOST", "127.0.0.1")
 PORT = int(os.getenv("FACE_PORT", "5005"))
 
 # Nama model yang ikut disimpan di database sebagai penanda asal angkanya.
@@ -106,6 +124,9 @@ def largest_face(locations: list[tuple[int, int, int, int]]) -> int | None:
 
     `locations` berisi (atas, kanan, bawah, kiri). Wajah terbesar dianggap
     wajah yang paling dekat dengan kamera.
+
+    Pemilihan ini hanya dipakai bila pemanggil tidak meminta `require_single`,
+    karena untuk absen foto yang memuat lebih dari satu orang sebaiknya ditolak.
     """
 
     if not locations:
@@ -116,6 +137,19 @@ def largest_face(locations: list[tuple[int, int, int, int]]) -> int | None:
         return max(0, bottom - top) * max(0, right - left)
 
     return max(range(len(locations)), key=lambda index: area(locations[index]))
+
+
+def face_side(location: tuple[int, int, int, int]) -> int:
+    """Sisi terpendek kotak wajah dalam piksel.
+
+    Dipakai aplikasi sekolah untuk menolak potret yang wajahnya terlalu kecil.
+    Angka 40 piksel misalnya masih menghasilkan 128 angka yang terlihat wajar,
+    tetapi angka itu tidak layak dipakai memutuskan identitas siapa pun.
+    """
+
+    top, right, bottom, left = location
+
+    return max(0, min(bottom - top, right - left))
 
 
 def proof_photo(picture: object) -> dict[str, object] | None:
@@ -163,12 +197,28 @@ def proof_photo(picture: object) -> dict[str, object] | None:
     }
 
 
-def no_face_response(message: str, face_count: int = 0) -> JSONResponse:
+def no_face_response(message: str, face_count: int = 0, face_size_pixels: int = 0) -> JSONResponse:
+    return refusal_response("no_face", message, face_count, face_size_pixels)
+
+
+def refusal_response(
+    status: str,
+    message: str,
+    face_count: int = 0,
+    face_size_pixels: int = 0,
+) -> JSONResponse:
+    """Balasan penolakan dengan bentuk yang sama seperti balasan sukses.
+
+    Bentuknya sengaja dibuat seragam supaya aplikasi sekolah cukup membaca satu
+    cara saja, dan supaya balasan tuduhan yang lama tetap tidak berubah.
+    """
+
     return JSONResponse(
         {
-            "status": "no_face",
+            "status": status,
             "encoding": None,
             "face_count": face_count,
+            "face_size": face_size_pixels,
             "model": MODEL_NAME,
             "message": message,
         }
@@ -183,13 +233,21 @@ def health() -> dict[str, str]:
 
 
 @app.post("/encode")
-async def encode(image: UploadFile = File(...), with_photo: bool = False) -> JSONResponse:
+async def encode(
+    image: UploadFile = File(...),
+    with_photo: bool = False,
+    require_single: bool = False,
+) -> JSONResponse:
     """Hitung angka pembanding wajah dari satu foto.
 
     Parameter `with_photo` diisi 1 oleh aplikasi sekolah saat foto itu dipakai
     untuk absen, supaya balasannya ikut memuat foto bukti yang sudah
     diperkecil. Pendaftaran wajah tidak memakai parameter ini karena foto
     pendaftaran tidak perlu disimpan.
+
+    Parameter `require_single` diisi 1 oleh alur absen, supaya foto yang memuat
+    lebih dari satu orang ditolak di sini dan bukan diam-diam dipilihkan wajah
+    terbesar. Tanpa parameter ini perilakunya sama seperti sebelumnya.
     """
 
     payload = await image.read()
@@ -225,6 +283,18 @@ async def encode(image: UploadFile = File(...), with_photo: bool = False) -> JSO
     if not locations:
         return no_face_response("Wajah tidak terlihat.")
 
+    terbesar = max(face_side(location) for location in locations)
+
+    # Absen hanya untuk satu orang. Kalau pemanggilnya memang meminta satu
+    # wajah, foto yang memuat lebih dari satu orang ditolak di sini.
+    if require_single and len(locations) > 1:
+        return refusal_response(
+            "multiple_faces",
+            "Ada lebih dari satu wajah di foto.",
+            len(locations),
+            terbesar,
+        )
+
     index = largest_face(locations)
     encodings = face_recognition.face_encodings(picture, [locations[index]])
 
@@ -252,6 +322,7 @@ async def encode(image: UploadFile = File(...), with_photo: bool = False) -> JSO
             "status": "success",
             "encoding": [round(float(value), 6) for value in encoding],
             "face_count": len(locations),
+            "face_size": face_side(locations[index]),
             "model": MODEL_NAME,
             "message": "Wajah terbaca."
             if len(locations) == 1
