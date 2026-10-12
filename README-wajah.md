@@ -90,18 +90,26 @@ lama.
 
 ### Daftar lewat website aplikasi sekolah
 
-Folder `images/` di atas tetap berguna untuk pendaftaran massal dari server,
-tetapi pendaftaran juga bisa dilakukan tanpa membuka terminal. Di aplikasi
-sekolah, halaman `/wajah` menyediakan:
+Folder `images/` dan skrip `enroll_faces.py` di atas tetap berguna untuk
+pendaftaran massal dari server. Pendaftaran lewat website dilakukan tanpa membuka
+terminal, dan di aplikasi sekolah halaman `/wajah` menyediakan:
 
-- **Daftarkan Wajah dari Foto** - pilih satu anggota, lampirkan paling banyak
-  tiga foto, lalu lihat hasil tiap foto di tabel "Hasil pendaftaran foto";
-- **Impor Massal dari Folder Foto** - pilih folder dengan struktur `NIS/nama.jpg`
-  sama seperti di atas; berkas dikirim satu per satu dan ada tombol Berhenti;
-- kolom **Foto wajah (opsional)** pada form tambah anggota.
+- panel **Tambah foto wajah** - pilih satu anggota, lampirkan paling banyak
+  sepuluh foto sekali kirim, lalu pantau kemajuannya di panel Proses pendaftaran
+  wajah karena pengubahannya menjadi angka wajah berjalan di latar belakang;
+- kotak centang **Ganti foto wajah anggota ini** pada panel yang sama;
+- kolom **Foto wajah (opsional)** pada form tambah anggota di halaman Anggota.
 
-Batasnya 20 foto per anggota, mengirim foto baru akan mengganti yang paling lama.
-Foto yang memuat lebih dari satu orang ditolak dengan pesan yang bisa dibaca.
+Impor folder langsung dari peramban sudah tidak ada, jadi pendaftaran sekaligus
+banyak anggota memakai skrip `enroll_faces.py` di atas.
+
+Batasnya 20 foto per anggota. Tanpa mencentang kotak ganti, foto baru ditumpuk
+dan yang paling lama dibuang begitu jumlahnya lewat batas. Dengan kotak itu
+dicentang, seluruh foto lama diganti oleh seluruh foto baru yang berhasil
+diproses, dan penggantiannya baru dikerjakan setelah seluruh foto kiriman itu
+selesai diproses. Foto yang gagal tidak pernah ikut tersimpan, dan bila seluruh
+foto baru gagal maka foto lama tetap dipertahankan. Foto yang memuat lebih dari
+satu orang ditolak dengan pesan yang bisa dibaca.
 
 ## 4. Pakai di aplikasi
 
